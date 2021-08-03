@@ -216,7 +216,50 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
     prev_time = cur_time;
 }
 
+/**
+ * @brief  利用F基础矩阵的RANSAC求解方法去除outlier匹配点
+ *
+ */
+void FeatureTracker::rejectWithF()
+{
+    // 当前被追踪到的光流至少8个点
+    if (forw_pts.size() >= 8)
+    {
+        ROS_DEBUG("FM ransac begins");
+        TicToc t_f;
+        vector<cv::Point2f> un_cur_pts(cur_pts.size()), un_forw_pts(forw_pts.size());
+        for (unsigned int i = 0; i < cur_pts.size(); i++)
+        {
+            Eigen::Vector3d tmp_p;
+            // 得到相机归一化坐标系的值
+            m_camera->liftProjective(Eigen::Vector2d(cur_pts[i].x, cur_pts[i].y), tmp_p);
+            // 这里用一个虚拟相机，原因同样参考https://github.com/HKUST-Aerial-Robotics/VINS-Mono/issues/48
+            // 这里有个好处就是对F_THRESHOLD和相机无关
+            // 投影到虚拟相机的像素坐标系
+            tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + COL / 2.0;
+            tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + ROW / 2.0;
+            un_cur_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
 
+            m_camera->liftProjective(Eigen::Vector2d(forw_pts[i].x, forw_pts[i].y), tmp_p);
+            tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + COL / 2.0;
+            tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + ROW / 2.0;
+            un_forw_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
+        }
+
+        vector<uchar> status;
+        // opencv接口计算本质矩阵，某种意义也是一种对级约束的outlier剔除
+        cv::findFundamentalMat(un_cur_pts, un_forw_pts, cv::FM_RANSAC, F_THRESHOLD, 0.99, status);
+        int size_a = cur_pts.size();
+        reduceVector(prev_pts, status);
+        reduceVector(cur_pts, status);
+        reduceVector(forw_pts, status);
+        reduceVector(cur_un_pts, status);
+        reduceVector(ids, status);
+        reduceVector(track_cnt, status);
+        ROS_DEBUG("FM ransac: %d -> %lu: %f", size_a, forw_pts.size(), 1.0 * forw_pts.size() / size_a);
+        ROS_DEBUG("FM ransac costs: %fms", t_f.toc());
+    }
+}
 
 // 当前帧所有点统一去畸变，同时计算特征点速度，用来后续时间戳标定
 void FeatureTracker::undistortedPoints()
@@ -278,5 +321,67 @@ void FeatureTracker::undistortedPoints()
     prev_un_pts_map = cur_un_pts_map;
 }
 
+/**
+ * @brief
+ *
+ * @param[in] i
+ * @return true
+ * @return false
+ *  给新的特征点赋上id,越界就返回false
+ */
+bool FeatureTracker::updateID(unsigned int i)
+{
+    if (i < ids.size())
+    {
+        if (ids[i] == -1)
+            ids[i] = n_id++;
+        return true;
+    }
+    else
+        return false;
+}
 
+void FeatureTracker::readIntrinsicParameter(const string &calib_file)
+{
+    ROS_INFO("reading paramerter of camera %s", calib_file.c_str());
+    // 读到的相机内参赋给m_camera
+    m_camera = CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
+}
+
+
+void FeatureTracker::showUndistortion(const string &name)
+{
+    cv::Mat undistortedImg(ROW + 600, COL + 600, CV_8UC1, cv::Scalar(0));
+    vector<Eigen::Vector2d> distortedp, undistortedp;
+    for (int i = 0; i < COL; i++)
+        for (int j = 0; j < ROW; j++)
+        {
+            Eigen::Vector2d a(i, j);
+            Eigen::Vector3d b;
+            m_camera->liftProjective(a, b);
+            distortedp.push_back(a);
+            undistortedp.push_back(Eigen::Vector2d(b.x() / b.z(), b.y() / b.z()));
+            //printf("%f,%f->%f,%f,%f\n)\n", a.x(), a.y(), b.x(), b.y(), b.z());
+        }
+    for (int i = 0; i < int(undistortedp.size()); i++)
+    {
+        cv::Mat pp(3, 1, CV_32FC1);
+        pp.at<float>(0, 0) = undistortedp[i].x() * FOCAL_LENGTH + COL / 2;
+        pp.at<float>(1, 0) = undistortedp[i].y() * FOCAL_LENGTH + ROW / 2;
+        pp.at<float>(2, 0) = 1.0;
+        //cout << trackerData[0].K << endl;
+        //printf("%lf %lf\n", p.at<float>(1, 0), p.at<float>(0, 0));
+        //printf("%lf %lf\n", pp.at<float>(1, 0), pp.at<float>(0, 0));
+        if (pp.at<float>(1, 0) + 300 >= 0 && pp.at<float>(1, 0) + 300 < ROW + 600 && pp.at<float>(0, 0) + 300 >= 0 && pp.at<float>(0, 0) + 300 < COL + 600)
+        {
+            undistortedImg.at<uchar>(pp.at<float>(1, 0) + 300, pp.at<float>(0, 0) + 300) = cur_img.at<uchar>(distortedp[i].y(), distortedp[i].x());
+        }
+        else
+        {
+            //ROS_ERROR("(%f %f) -> (%f %f)", distortedp[i].y, distortedp[i].x, pp.at<float>(1, 0), pp.at<float>(0, 0));
+        }
+    }
+    cv::imshow(name, undistortedImg);
+    cv::waitKey(0);
+}
 

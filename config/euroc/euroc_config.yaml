@@ -5,8 +5,8 @@ imu_topic: "/imu0"
 image_topic: "/cam0/image_raw"
 output_path: "/home/zlc/catkin_ws/src/Vins-Mono-noted/output/"
 
-# camera calibration
-model_type: PINHOLE   # 相机模型选择针孔模型
+# camera calibration   # 相机模型选择针孔模型
+model_type: PINHOLE
 camera_name: camera
 image_width: 752
 image_height: 480

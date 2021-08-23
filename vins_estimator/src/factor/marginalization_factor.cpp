@@ -119,6 +119,7 @@ void MarginalizationInfo::addResidualBlockInfo(ResidualBlockInfo *residual_block
     }
 }
 
+
 /**
  * @brief 将各个残差块计算残差和雅克比，同时备份所有相关的参数块内容
  * 
@@ -127,7 +128,7 @@ void MarginalizationInfo::preMarginalize()
 {
     for (auto it : factors)
     {
-        it->Evaluate(); // 调用这个接口计算各个残差块的残差和雅克比矩阵
+        it->Evaluate();     // 调用这个接口计算各个残差块的残差和雅克比矩阵
 
         std::vector<int> block_sizes = it->cost_function->parameter_block_sizes();  // 得到每个残差块的参数块大小
         for (int i = 0; i < static_cast<int>(block_sizes.size()); i++)
@@ -146,15 +147,18 @@ void MarginalizationInfo::preMarginalize()
     }
 }
 
+
 int MarginalizationInfo::localSize(int size) const
 {
     return size == 7 ? 6 : size;
 }
 
+
 int MarginalizationInfo::globalSize(int size) const
 {
     return size == 6 ? 7 : size;
 }
+
 
 /**
  * @brief 分线程构造Ax = b
@@ -207,6 +211,7 @@ void* ThreadsConstructA(void* threadsstruct)
     return threadsstruct;
 }
 
+
 /**
  * @brief 边缘化处理，并将结果转换成残差和雅克比的形式
  * 
@@ -221,8 +226,8 @@ void MarginalizationInfo::marginalize()
         it.second = pos;    // 这就是在所有参数中排序的idx，待边缘化的排在前面
         pos += localSize(parameter_block_size[it.first]);   // 因为要进行求导，因此大小是local size，具体一点就是使用李代数
     }
-
     m = pos;    // 总共待边缘化的参数块总大小（不是个数）
+
     // 其他参数块
     for (const auto &it : parameter_block_size)
     {
@@ -233,7 +238,7 @@ void MarginalizationInfo::marginalize()
         }
     }
 
-    n = pos - m;    // 其他参数块的总大小
+    n = pos - m;    // 剩余其他不需要marg的参数块总大小
 
     //ROS_DEBUG("marginalization, pos: %d, m: %d, n: %d, size: %d", pos, m, n, (int)parameter_block_idx.size());
 
@@ -317,18 +322,20 @@ void MarginalizationInfo::marginalize()
     Eigen::MatrixXd Amm = 0.5 * (A.block(0, 0, m, m) + A.block(0, 0, m, m).transpose());
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> saes(Amm);   // 特征值分解
 
-    //ROS_ASSERT_MSG(saes.eigenvalues().minCoeff() >= -1e-4, "min eigenvalue %f", saes.eigenvalues().minCoeff());
+    // ROS_ASSERT_MSG(saes.eigenvalues().minCoeff() >= -1e-4, "min eigenvalue %f", saes.eigenvalues().minCoeff());
     // 一个逆矩阵的特征值是原矩阵的倒数，特征向量相同　select类似c++中 ? :运算符
     // 利用特征值取逆来构造其逆矩阵
     Eigen::MatrixXd Amm_inv = saes.eigenvectors() * Eigen::VectorXd((saes.eigenvalues().array() > eps).select(saes.eigenvalues().array().inverse(), 0)).asDiagonal() * saes.eigenvectors().transpose();
-    //printf("error1: %f\n", (Amm * Amm_inv - Eigen::MatrixXd::Identity(m, m)).sum());
+    // printf("error1: %f\n", (Amm * Amm_inv - Eigen::MatrixXd::Identity(m, m)).sum());
 
-    Eigen::VectorXd bmm = b.segment(0, m);  // 带边缘化的大小
+
     Eigen::MatrixXd Amr = A.block(0, m, m, n);  // 对应的四块矩阵
     Eigen::MatrixXd Arm = A.block(m, 0, n, m);
     Eigen::MatrixXd Arr = A.block(m, m, n, n);
-    Eigen::VectorXd brr = b.segment(m, n); // 剩下的参数
-    A = Arr - Arm * Amm_inv * Amr;
+
+    Eigen::VectorXd bmm = b.segment(0, m);  // 带边缘化的大小
+    Eigen::VectorXd brr = b.segment(m, n);  // 剩下的参数
+    A = Arr - Arm * Amm_inv * Amr;          // 舒尔补操作
     b = brr - Arm * Amm_inv * bmm;
 
     // 这个地方根据Ax = b => JT*J = - JT * e
@@ -342,15 +349,19 @@ void MarginalizationInfo::marginalize()
 
     Eigen::VectorXd S_sqrt = S.cwiseSqrt(); // 这个求得就是 S^(1/2)，不过这里是向量还不是矩阵
     Eigen::VectorXd S_inv_sqrt = S_inv.cwiseSqrt();
+
     // 边缘化为了实现对剩下参数块的约束，为了便于一起优化，就抽象成了残差和雅克比的形式，这样也形成了一种残差约束
+    // 通过H分解出J和残差r
     linearized_jacobians = S_sqrt.asDiagonal() * saes2.eigenvectors().transpose();
     linearized_residuals = S_inv_sqrt.asDiagonal() * saes2.eigenvectors().transpose() * b;
+
     //std::cout << A << std::endl
     //          << std::endl;
     //std::cout << linearized_jacobians << std::endl;
     //printf("error2: %f %f\n", (linearized_jacobians.transpose() * linearized_jacobians - A).sum(),
     //      (linearized_jacobians.transpose() * linearized_residuals - b).sum());
 }
+
 
 std::vector<double *> MarginalizationInfo::getParameterBlocks(std::unordered_map<long, double *> &addr_shift)
 {
@@ -374,6 +385,8 @@ std::vector<double *> MarginalizationInfo::getParameterBlocks(std::unordered_map
 
     return keep_block_addr;
 }
+
+
 /**
  * @brief Construct a new Marginalization Factor:: Marginalization Factor object
  * 边缘化信息结果的构造函数，根据边缘化信息确定参数块总数和大小以及残差维数
@@ -391,6 +404,7 @@ MarginalizationFactor::MarginalizationFactor(MarginalizationInfo* _marginalizati
     //printf("residual size: %d, %d\n", cnt, n);
     set_num_residuals(marginalization_info->n); // 残差维数就是所有剩余状态量的维数和，这里时local size
 };
+
 
 /**
  * @brief 边缘化结果残差和雅克比的计算

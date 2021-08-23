@@ -44,10 +44,12 @@ struct ThreadsStruct
     std::vector<ResidualBlockInfo *> sub_factors;
     Eigen::MatrixXd A;
     Eigen::VectorXd b;
-    std::unordered_map<long, int> parameter_block_size; //global size
-    std::unordered_map<long, int> parameter_block_idx; //local size
+    std::unordered_map<long, int> parameter_block_size;  // global size  优化变量维度     eg:旋转用四元数表示， 7
+    std::unordered_map<long, int> parameter_block_idx;   // local size   变量自由度      自由度是6
 };
 
+
+// 用来进行边缘化操作的类
 class MarginalizationInfo
 {
   public:

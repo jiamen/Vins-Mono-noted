@@ -5,15 +5,16 @@ bool PoseLocalParameterization::Plus(const double *x, const double *delta, doubl
     Eigen::Map<const Eigen::Vector3d> _p(x);
     Eigen::Map<const Eigen::Quaterniond> _q(x + 3);
 
-    Eigen::Map<const Eigen::Vector3d> dp(delta);
+    Eigen::Map<const Eigen::Vector3d> dp(delta);    // 位移加法
 
-    Eigen::Quaterniond dq = Utility::deltaQ(Eigen::Map<const Eigen::Vector3d>(delta + 3));
+    Eigen::Quaterniond dq = Utility::deltaQ(Eigen::Map<const Eigen::Vector3d>(delta + 3));  // 四元数没有加法，这里更新操作定义成右乘变化量
 
     Eigen::Map<Eigen::Vector3d> p(x_plus_delta);
     Eigen::Map<Eigen::Quaterniond> q(x_plus_delta + 3);
 
-    p = _p + dp;
-    q = (_q * dq).normalized();
+    // 顶点更新
+    p = _p + dp;                    // 位移更新
+    q = (_q * dq).normalized();     // 旋转四元数更新
 
     return true;
 }

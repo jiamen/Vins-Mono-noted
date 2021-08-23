@@ -27,12 +27,14 @@ class IntegrationBase
         noise.block<3, 3>(15, 15) =  (GYR_W * GYR_W) * Eigen::Matrix3d::Identity();
     }
 
+
     void push_back(double dt, const Eigen::Vector3d &acc, const Eigen::Vector3d &gyr)
     {
         // 相关时间差和传感器数据保留，方便后续repropagate
         dt_buf.push_back(dt);
         acc_buf.push_back(acc);
         gyr_buf.push_back(gyr);
+
         propagate(dt, acc, gyr);
     }
 
@@ -61,6 +63,39 @@ class IntegrationBase
             propagate(dt_buf[i], acc_buf[i], gyr_buf[i]);
     }
 
+
+    void propagate(double _dt, const Eigen::Vector3d& _acc_1, const Eigen::Vector3d& _gyr_1)
+    {
+        dt = _dt;               // k+1时刻值
+        acc_1 = _acc_1;         // k+1时刻值
+        gyr_1 = _gyr_1;         // k+1时刻值
+
+        Vector3d result_delta_p;
+        Quaterniond result_delta_q;
+        Vector3d result_delta_v;
+        Vector3d result_linearized_ba;
+        Vector3d result_linearized_bg;
+
+        // 预积分的离散形式使用的是中值积分更新
+        midPointIntegration(_dt, acc_0, gyr_0, _acc_1, _gyr_1, delta_p, delta_q, delta_v,
+                            linearized_ba, linearized_bg,
+                            result_delta_p, result_delta_q, result_delta_v,
+                            result_linearized_ba, result_linearized_bg, 1);
+
+        //checkJacobian(_dt, acc_0, gyr_0, acc_1, gyr_1, delta_p, delta_q, delta_v,
+        //                    linearized_ba, linearized_bg);
+        delta_p = result_delta_p;
+        delta_q = result_delta_q;
+        delta_v = result_delta_v;
+        linearized_ba = result_linearized_ba;
+        linearized_bg = result_linearized_bg;
+        delta_q.normalize();
+        sum_dt += dt;
+        acc_0 = acc_1;
+        gyr_0 = gyr_1;
+    }
+
+
     void midPointIntegration(double _dt, 
                             const Eigen::Vector3d &_acc_0, const Eigen::Vector3d &_gyr_0,
                             const Eigen::Vector3d &_acc_1, const Eigen::Vector3d &_gyr_1,
@@ -70,7 +105,7 @@ class IntegrationBase
                             Eigen::Vector3d &result_linearized_ba, Eigen::Vector3d &result_linearized_bg, bool update_jacobian)
     {
         //ROS_INFO("midpoint integration");
-        // 首先中值积分更新状态量
+        // 首先中值积分更新状态量，计算步骤与PPT序号对应
         Vector3d un_acc_0 = delta_q * (_acc_0 - linearized_ba);
         Vector3d un_gyr = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;
         result_delta_q = delta_q * Quaterniond(1, un_gyr(0) * _dt / 2, un_gyr(1) * _dt / 2, un_gyr(2) * _dt / 2);
@@ -80,31 +115,34 @@ class IntegrationBase
         result_delta_v = delta_v + un_acc * _dt;
         result_linearized_ba = linearized_ba;
         result_linearized_bg = linearized_bg;         
+
         // 随后更新方差矩阵及雅克比
         if(update_jacobian)
         {
-            Vector3d w_x = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;
+            Vector3d w_x = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;     // 角速度的中值w
             Vector3d a_0_x = _acc_0 - linearized_ba;
             Vector3d a_1_x = _acc_1 - linearized_ba;
             Matrix3d R_w_x, R_a_0_x, R_a_1_x;
 
-            R_w_x<<0, -w_x(2), w_x(1),
+            R_w_x << 0, -w_x(2), w_x(1),
                 w_x(2), 0, -w_x(0),
                 -w_x(1), w_x(0), 0;
-            R_a_0_x<<0, -a_0_x(2), a_0_x(1),
+            R_a_0_x << 0, -a_0_x(2), a_0_x(1),
                 a_0_x(2), 0, -a_0_x(0),
                 -a_0_x(1), a_0_x(0), 0;
-            R_a_1_x<<0, -a_1_x(2), a_1_x(1),
+            R_a_1_x << 0, -a_1_x(2), a_1_x(1),
                 a_1_x(2), 0, -a_1_x(0),
                 -a_1_x(1), a_1_x(0), 0;
 
+            // IMU 误差传递 采用 基于误差随时间变化的递推公式  F = I+A△t， G = B△t
+            // 误差的传递由两部分组成：当前时刻的误差传递给下一时刻 + 当前时刻测量噪声传递给下一时刻。
             MatrixXd F = MatrixXd::Zero(15, 15);
-            F.block<3, 3>(0, 0) = Matrix3d::Identity();
+            F.block<3, 3>(0, 0) = Matrix3d::Identity();         // ①
             F.block<3, 3>(0, 3) = -0.25 * delta_q.toRotationMatrix() * R_a_0_x * _dt * _dt + 
-                                  -0.25 * result_delta_q.toRotationMatrix() * R_a_1_x * (Matrix3d::Identity() - R_w_x * _dt) * _dt * _dt;
-            F.block<3, 3>(0, 6) = MatrixXd::Identity(3,3) * _dt;
-            F.block<3, 3>(0, 9) = -0.25 * (delta_q.toRotationMatrix() + result_delta_q.toRotationMatrix()) * _dt * _dt;
-            F.block<3, 3>(0, 12) = -0.25 * result_delta_q.toRotationMatrix() * R_a_1_x * _dt * _dt * -_dt;
+                                  -0.25 * result_delta_q.toRotationMatrix() * R_a_1_x * (Matrix3d::Identity() - R_w_x * _dt) * _dt * _dt;   // ②
+            F.block<3, 3>(0, 6) = MatrixXd::Identity(3,3) * _dt;    // ③
+            F.block<3, 3>(0, 9) = -0.25 * (delta_q.toRotationMatrix() + result_delta_q.toRotationMatrix()) * _dt * _dt; // ④
+            F.block<3, 3>(0, 12) = -0.25 * result_delta_q.toRotationMatrix() * R_a_1_x * _dt * _dt * -_dt;  // ⑤
             F.block<3, 3>(3, 3) = Matrix3d::Identity() - R_w_x * _dt;
             F.block<3, 3>(3, 12) = -1.0 * MatrixXd::Identity(3,3) * _dt;
             F.block<3, 3>(6, 3) = -0.5 * delta_q.toRotationMatrix() * R_a_0_x * _dt + 
@@ -116,6 +154,7 @@ class IntegrationBase
             F.block<3, 3>(12, 12) = Matrix3d::Identity();
             //cout<<"A"<<endl<<A<<endl;
 
+            // PPT中的G矩阵
             MatrixXd V = MatrixXd::Zero(15,18);
             V.block<3, 3>(0, 0) =  0.25 * delta_q.toRotationMatrix() * _dt * _dt;
             V.block<3, 3>(0, 3) =  0.25 * -result_delta_q.toRotationMatrix() * R_a_1_x  * _dt * _dt * 0.5 * _dt;
@@ -135,38 +174,8 @@ class IntegrationBase
             jacobian = F * jacobian;
             covariance = F * covariance * F.transpose() + V * noise * V.transpose();
         }
-
     }
 
-    void propagate(double _dt, const Eigen::Vector3d &_acc_1, const Eigen::Vector3d &_gyr_1)
-    {
-        dt = _dt;
-        acc_1 = _acc_1;
-        gyr_1 = _gyr_1;
-        Vector3d result_delta_p;
-        Quaterniond result_delta_q;
-        Vector3d result_delta_v;
-        Vector3d result_linearized_ba;
-        Vector3d result_linearized_bg;
-
-        midPointIntegration(_dt, acc_0, gyr_0, _acc_1, _gyr_1, delta_p, delta_q, delta_v,
-                            linearized_ba, linearized_bg,
-                            result_delta_p, result_delta_q, result_delta_v,
-                            result_linearized_ba, result_linearized_bg, 1);
-
-        //checkJacobian(_dt, acc_0, gyr_0, acc_1, gyr_1, delta_p, delta_q, delta_v,
-        //                    linearized_ba, linearized_bg);
-        delta_p = result_delta_p;
-        delta_q = result_delta_q;
-        delta_v = result_delta_v;
-        linearized_ba = result_linearized_ba;
-        linearized_bg = result_linearized_bg;
-        delta_q.normalize();
-        sum_dt += dt;
-        acc_0 = acc_1;
-        gyr_0 = gyr_1;  
-     
-    }
 
     // 计算和给定相邻帧状态量的残差
     Eigen::Matrix<double, 15, 1> evaluate(const Eigen::Vector3d &Pi, const Eigen::Quaterniond &Qi, const Eigen::Vector3d &Vi, const Eigen::Vector3d &Bai, const Eigen::Vector3d &Bgi,
@@ -220,8 +229,8 @@ class IntegrationBase
     std::vector<double> dt_buf;
     std::vector<Eigen::Vector3d> acc_buf;
     std::vector<Eigen::Vector3d> gyr_buf;
-
 };
+
 /*
 
     void eulerIntegration(double _dt, const Eigen::Vector3d &_acc_0, const Eigen::Vector3d &_gyr_0,

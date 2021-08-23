@@ -14,14 +14,14 @@ const int NUM_OF_CAM = 1;
 const int NUM_OF_F = 1000;
 //#define UNIT_SPHERE_ERROR
 
-extern double INIT_DEPTH;
+extern double INIT_DEPTH;       // 特征点三角化距离太近时，就设置成默认值
 extern double MIN_PARALLAX;
 extern int ESTIMATE_EXTRINSIC;
 
 extern double ACC_N, ACC_W;
 extern double GYR_N, GYR_W;
 
-extern std::vector<Eigen::Matrix3d> RIC;
+extern std::vector<Eigen::Matrix3d> RIC;    // IMU与相机的外参R_bc
 extern std::vector<Eigen::Vector3d> TIC;
 extern Eigen::Vector3d G;
 

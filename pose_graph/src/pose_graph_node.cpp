@@ -330,6 +330,7 @@ void process()
 {
     if (!LOOP_CLOSURE)  // 不检测回环就啥都不干
         return;
+
     while (true)
     {
         sensor_msgs::ImageConstPtr image_msg = NULL;

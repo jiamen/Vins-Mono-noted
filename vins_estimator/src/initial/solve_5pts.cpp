@@ -1,7 +1,8 @@
 #include "solve_5pts.h"
 
 
-namespace cv {
+namespace cv
+{
     void decomposeEssentialMat( InputArray _E, OutputArray _R1, OutputArray _R2, OutputArray _t )
     {
 
@@ -28,7 +29,7 @@ namespace cv {
     }
 
     int recoverPose( InputArray E, InputArray _points1, InputArray _points2, InputArray _cameraMatrix,
-                         OutputArray _R, OutputArray _t, InputOutputArray _mask)
+                     OutputArray _R, OutputArray _t, InputOutputArray _mask)
     {
 
         Mat points1, points2, cameraMatrix;
@@ -77,6 +78,7 @@ namespace cv {
         double dist = 50.0;
         Mat Q;
         triangulatePoints(P0, P1, points1, points2, Q);
+
         Mat mask1 = Q.row(2).mul(Q.row(3)) > 0;
         Q.row(0) /= Q.row(3);
         Q.row(1) /= Q.row(3);
@@ -212,6 +214,7 @@ bool MotionEstimator::solveRelativeRT(const vector<pair<Vector3d, Vector3d>> &co
         cv::Mat mask;
         // 调用opencv接口求解E矩阵
         cv::Mat E = cv::findFundamentalMat(ll, rr, cv::FM_RANSAC, 0.3 / 460, 0.99, mask);
+
         // 已经是归一化相机坐标系了，因此内参阵用单位阵
         cv::Mat cameraMatrix = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1);
         cv::Mat rot, trans;
@@ -228,6 +231,7 @@ bool MotionEstimator::solveRelativeRT(const vector<pair<Vector3d, Vector3d>> &co
             for (int j = 0; j < 3; j++)
                 R(i, j) = rot.at<double>(i, j);
         }
+
         // opencv得到的是T21,这里换成T12
         Rotation = R.transpose();
         Translation = -R.transpose() * T;

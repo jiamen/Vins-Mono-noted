@@ -96,7 +96,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         return true;
 
     // 遍历所有特征ID
-    for (auto &it_per_id : feature)
+    for (auto& it_per_id : feature)
     {
         // 计算的实际上是frame_count-1,也就是前一帧是否为关键帧
         // 因此起始帧至少得是frame_count - 2,同时至少覆盖到frame_count - 1帧
@@ -214,7 +214,7 @@ void FeatureManager::removeFailures()
  * 
  * @param[in] x 
  */
-void FeatureManager::clearDepth(const VectorXd &x)
+void FeatureManager::clearDepth(const VectorXd& x)
 {
     int feature_index = -1;
     for (auto &it_per_id : feature)
@@ -238,10 +238,11 @@ VectorXd FeatureManager::getDepthVector()
     for (auto &it_per_id : feature)
     {
         it_per_id.used_num = it_per_id.feature_per_frame.size();
+        // 有足够的跟踪并且保证可以被三角化
         if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
             continue;
 #if 1
-        dep_vec(++feature_index) = 1. / it_per_id.estimated_depth;
+        dep_vec(++ feature_index) = 1. / it_per_id.estimated_depth;
 #else
         dep_vec(++feature_index) = it_per_id->estimated_depth;
 #endif
@@ -259,9 +260,10 @@ VectorXd FeatureManager::getDepthVector()
 void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
 {
     // 遍历每一个特征点
-    for (auto &it_per_id : feature)
+    for (auto& it_per_id : feature)
     {
         it_per_id.used_num = it_per_id.feature_per_frame.size();
+        // 有足够的跟踪，并且不是导数第二帧才第一次观测到的点，目的是保证能够三角化
         if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
             continue;
 
@@ -276,34 +278,39 @@ void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
         Eigen::Matrix<double, 3, 4> P0;
 
         // Twi -> Twc,第一个观察到这个特征点的KF的位姿
-        Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0];
-        Eigen::Matrix3d R0 = Rs[imu_i] * ric[0];
+        Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0];    // P_wc
+        Eigen::Matrix3d R0 = Rs[imu_i] * ric[0];                // R_wc
         P0.leftCols<3>() = Eigen::Matrix3d::Identity();
         P0.rightCols<1>() = Eigen::Vector3d::Zero();
 
-        // 遍历所有看到这个特征点的KF
+        // 遍历所有看到这个特征点的KF       《VIO第6讲》  公式（12）
         for (auto& it_per_frame : it_per_id.feature_per_frame)
         {
             imu_j ++;
             // 得到该KF的相机坐标系位姿
             Eigen::Vector3d t1 = Ps[imu_j] + Rs[imu_j] * tic[0];
-            Eigen::Matrix3d R1 = Rs[imu_j] * ric[0];
+            Eigen::Matrix3d R1 = Rs[imu_j] * ric[0];        // R_c0_ck
+
             // T_w_cj -> T_c0_cj
-            Eigen::Vector3d t = R0.transpose() * (t1 - t0);
+            Eigen::Vector3d t = R0.transpose() * (t1 - t0);     // R0^T = R_wc^T = R_cw       Tw_01 = Tw1-Tw0
             Eigen::Matrix3d R = R0.transpose() * R1;
             Eigen::Matrix<double, 3, 4> P;
-            // T_c0_cj -> T_cj_c0相当于把c0当作世界系
-            P.leftCols<3>() = R.transpose();
-            P.rightCols<1>() = -R.transpose() * t;
-            Eigen::Vector3d f = it_per_frame.point.normalized();
-            // 构建超定方程的其中两个方程
-            svd_A.row(svd_idx++) = f[0] * P.row(2) - f[2] * P.row(0);
-            svd_A.row(svd_idx++) = f[1] * P.row(2) - f[2] * P.row(1);
+
+            // T_c0_cj -> T_cj_c0 相当于把c0当作世界系   对于PPT中矩阵P的理解
+            P.leftCols<3>()  = R.transpose();
+            P.rightCols<1>() = -R.transpose() * t;      // 变换矩阵T的求逆公式在《SLAM14讲》 第44页
+            Eigen::Vector3d f = it_per_frame.point.normalized();    // (u, v, 1)  这里的坐标系是 相机坐标系cj下的观测的归一化表示??????????
+
+            // 构建超定方程的其中两个方程  《VIO第6讲》  公式（13）的组成
+            svd_A.row(svd_idx ++) = f[0] * P.row(2) - f[2] * P.row(0);
+            svd_A.row(svd_idx ++) = f[1] * P.row(2) - f[2] * P.row(1);
 
             if (imu_i == imu_j)
                 continue;
         }
+
         ROS_ASSERT(svd_idx == svd_A.rows());
+        // 《VIO第6讲》  特征点在世界坐标系下的描述    取y=u4
         Eigen::Vector4d svd_V = Eigen::JacobiSVD<Eigen::MatrixXd>(svd_A, Eigen::ComputeThinV).matrixV().rightCols<1>();
         // 求解齐次坐标下的深度
         double svd_method = svd_V[2] / svd_V[3];
@@ -312,13 +319,12 @@ void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
         // it_per_id->estimated_depth = svd_V[2] / svd_V[3];
         // 得到的深度值实际上就是第一个观察到这个特征点的相机坐标系下的深度值
         it_per_id.estimated_depth = svd_method;
-        //it_per_id->estimated_depth = INIT_DEPTH;
+        // it_per_id->estimated_depth = INIT_DEPTH;
 
         if (it_per_id.estimated_depth < 0.1)
         {
-            it_per_id.estimated_depth = INIT_DEPTH; // 具体太近就设置成默认值
+            it_per_id.estimated_depth = INIT_DEPTH; // 距离太近就设置成默认值
         }
-
     }
 }
 
@@ -431,13 +437,14 @@ void FeatureManager::removeFront(int frame_count)
     }
 }
 
+
 double FeatureManager::compensatedParallax2(const FeaturePerId& it_per_id, int frame_count)
 {
     // check the second last frame is keyframe or not
     // parallax betwwen seconde last frame and third last frame
     // 找到相邻两帧
-    const FeaturePerFrame &frame_i = it_per_id.feature_per_frame[frame_count - 2 - it_per_id.start_frame];
-    const FeaturePerFrame &frame_j = it_per_id.feature_per_frame[frame_count - 1 - it_per_id.start_frame];
+    const FeaturePerFrame& frame_i = it_per_id.feature_per_frame[frame_count - 2 - it_per_id.start_frame];
+    const FeaturePerFrame& frame_j = it_per_id.feature_per_frame[frame_count - 1 - it_per_id.start_frame];
 
     double ans = 0;
     Vector3d p_j = frame_j.point;
@@ -456,6 +463,7 @@ double FeatureManager::compensatedParallax2(const FeaturePerId& it_per_id, int f
     double u_i = p_i(0) / dep_i;
     double v_i = p_i(1) / dep_i;
     double du = u_i - u_j, dv = v_i - v_j;  // 归一化相机坐标系的坐标差
+
     // 当都是归一化坐标系时，他们两个都是一样的
     double dep_i_comp = p_i_comp(2);
     double u_i_comp = p_i_comp(0) / dep_i_comp;

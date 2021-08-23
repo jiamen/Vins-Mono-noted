@@ -73,9 +73,9 @@ public:
     Vector3d tic[NUM_OF_CAM];
 
     // 滑窗PVQB
-    Vector3d Ps[(WINDOW_SIZE + 1)];     // Ps位移
+    Vector3d Ps[(WINDOW_SIZE + 1)];     // Ps位移     Pwi   代码在 visualInitialAlign() 函数中
     Vector3d Vs[(WINDOW_SIZE + 1)];     // Vs速度
-    Matrix3d Rs[(WINDOW_SIZE + 1)];     // Rs旋转
+    Matrix3d Rs[(WINDOW_SIZE + 1)];     // Rs旋转     预积分中的R_bi_bk
     Vector3d Bas[(WINDOW_SIZE + 1)];    // Bas
     Vector3d Bgs[(WINDOW_SIZE + 1)];    // Bgs
     double td;
@@ -85,7 +85,7 @@ public:
     std_msgs::Header Headers[(WINDOW_SIZE + 1)];
 
     // 预积分值
-    IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)];
+    IntegrationBase* pre_integrations[(WINDOW_SIZE + 1)];
     Vector3d acc_0, gyr_0;
 
     vector<double> dt_buf[(WINDOW_SIZE + 1)];

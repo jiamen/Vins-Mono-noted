@@ -45,7 +45,7 @@ add_executable(vins_estimator
         src/utility/visualization.cpp
         src/utility/CameraPoseVisualization.cpp
         src/initial/solve_5pts.cpp
-        src/initial/initial_aligment.cpp
+        src/initial/initial_alignment.cpp
         src/initial/initial_sfm.cpp
         src/initial/initial_ex_rotation.cpp
 )

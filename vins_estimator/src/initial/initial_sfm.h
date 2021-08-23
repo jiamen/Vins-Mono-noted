@@ -18,7 +18,7 @@ struct SFMFeature
     bool state;
     int id;         // 特征id号
     vector<pair<int,Vector2d>> observation;     // 前面观测到本特征点的帧ID号，后面是归一化坐标
-    double position[3];         // Pw
+    double position[3];         // Pw世界坐标系下的位置
     double depth;
 };
 

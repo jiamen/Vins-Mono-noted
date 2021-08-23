@@ -30,7 +30,7 @@ class FeaturePerFrame
         cur_td = td;
     }
     double cur_td;
-    Vector3d point;
+    Vector3d point;         // 特征点的世界坐标系Pw     特征点在相机坐标系下的表示？？？？  feature_manager.cpp中triangulate()函数中的用法
     Vector2d uv;
     Vector2d velocity;
     double z;

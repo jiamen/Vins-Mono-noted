@@ -6,9 +6,11 @@ PoseGraph::PoseGraph()
     posegraph_visualization = new CameraPoseVisualization(1.0, 0.0, 1.0, 1.0);
     posegraph_visualization->setScale(0.1);
     posegraph_visualization->setLineWidth(0.01);
+
     // 生成一个线程，该线程用于进行4自由度全局优化
 	t_optimization = std::thread(&PoseGraph::optimize4DoF, this);
-    // 初始化一些变量
+
+	// 初始化一些变量
     earliest_loop_index = -1;
     t_drift = Eigen::Vector3d(0, 0, 0);
     yaw_drift = 0;

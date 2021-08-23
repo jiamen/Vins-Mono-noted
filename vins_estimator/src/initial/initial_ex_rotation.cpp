@@ -11,7 +11,7 @@ InitialEXRotation::InitialEXRotation(){
 // 标定imu和相机之间的旋转外参，通过imu和图像计算的旋转使用手眼标定计算获得
 bool InitialEXRotation::CalibrationExRotation(vector<pair<Vector3d, Vector3d>> corres, Quaterniond delta_q_imu, Matrix3d &calib_ric_result)
 {
-    frame_count++;
+    frame_count ++;
     // 根据特征关联求解两个连续帧相机的旋转R12
     Rc.push_back(solveRelativeR(corres));
     Rimu.push_back(delta_q_imu.toRotationMatrix());
@@ -26,12 +26,12 @@ bool InitialEXRotation::CalibrationExRotation(vector<pair<Vector3d, Vector3d>> c
         Quaterniond r1(Rc[i]);
         Quaterniond r2(Rc_g[i]);
 
+        // 角度误差r_k+1^k，用于后面的鲁棒核权重求解
         double angular_distance = 180 / M_PI * r1.angularDistance(r2);
-        ROS_DEBUG(
-            "%d %f", i, angular_distance);
-        // 一个简单的核函数
+        ROS_DEBUG("%d %f", i, angular_distance);
+        // 一个简单的核函数，式（8）中w的求解
         double huber = angular_distance > 5.0 ? 5.0 / angular_distance : 1.0;
-        ++sum_ok;
+        ++ sum_ok;
         Matrix4d L, R;
 
         double w = Quaterniond(Rc[i]).w();
@@ -49,15 +49,17 @@ bool InitialEXRotation::CalibrationExRotation(vector<pair<Vector3d, Vector3d>> c
         R.block<1, 3>(3, 0) = -q.transpose();
         R(3, 3) = w;
 
+        // 公式（7）
         A.block<4, 4>((i - 1) * 4, 0) = huber * (L - R);    // 作用在残差上面
     }
 
+    // 对公式（7）采用SVD分解
     JacobiSVD<MatrixXd> svd(A, ComputeFullU | ComputeFullV);
     Matrix<double, 4, 1> x = svd.matrixV().col(3);
-    Quaterniond estimated_R(x);
+    Quaterniond estimated_R(x);     // 用上面的Matrix初始化四元数
     ric = estimated_R.toRotationMatrix().inverse();
-    //cout << svd.singularValues().transpose() << endl;
-    //cout << ric << endl;
+    // cout << svd.singularValues().transpose() << endl;
+    // cout << ric << endl;
     Vector3d ric_cov;
     ric_cov = svd.singularValues().tail<3>();
     // 倒数第二个奇异值，因为旋转是3个自由度，因此检查一下第三小的奇异值是否足够大，通常需要足够的运动激励才能保证得到没有奇异的解

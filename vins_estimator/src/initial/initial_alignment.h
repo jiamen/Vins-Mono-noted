@@ -1,4 +1,6 @@
+
 #pragma once
+
 #include <eigen3/Eigen/Dense>
 #include <iostream>
 #include "../factor/imu_factor.h"
@@ -7,22 +9,28 @@
 #include <map>
 #include "../feature_manager.h"
 
+
 using namespace Eigen;
 using namespace std;
+
 
 class ImageFrame
 {
     public:
-        ImageFrame(){};
+        ImageFrame() {};
         ImageFrame(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>>& _points, double _t):t{_t},is_key_frame{false}
         {
             points = _points;
         };
+
         map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>> > > points;
+
         double t;
-        Matrix3d R;
+        Matrix3d R;     // R_wi    Rc0_ck
         Vector3d T;
-        IntegrationBase *pre_integration;
+
+        IntegrationBase* pre_integration;   // 携带预积分量，初始化会用到
+
         bool is_key_frame;
 };
 
